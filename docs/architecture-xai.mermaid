@@ -1,0 +1,54 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#8B5CF6', 'primaryTextColor': '#fff', 'lineColor': '#A78BFA'}}}%%
+
+flowchart TB
+    subgraph INPUT["📥 건강 데이터 입력"]
+        I1[단백질 섭취량]
+        I2[탄수화물 섭취량]
+        I3[수면 시간]
+        I4[운동 빈도]
+        I5[스트레스 수준]
+        I6[BMI]
+    end
+
+    subgraph NORMALIZE["📊 정규화"]
+        N1[권장량 대비<br/>비율 계산]
+        N2[0-1 스케일링]
+    end
+
+    subgraph ANALYZE["🔍 분석"]
+        A1[규칙 기반 분석]
+        A2[임계값 비교]
+        A3[이슈 탐지]
+    end
+
+    subgraph CALCULATE["🧮 기여도 계산"]
+        C1[영향 요인 추출]
+        C2[가중치 산출]
+        C3[점수 계산]
+    end
+
+    subgraph OUTPUT["📤 출력"]
+        O1[🏆 건강 점수<br/>78/100]
+        O2[⚠️ 주요 이슈<br/>단백질 부족, 수면 부족]
+        O3[📈 기여도<br/>단백질 45%, 수면 32%]
+        O4[💡 추천사항<br/>고단백 식단, 7시간 수면]
+    end
+
+    I1 & I2 & I3 & I4 & I5 & I6 --> N1
+    N1 --> N2
+    N2 --> A1
+    A1 --> A2
+    A2 --> A3
+    A3 --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> O1
+    A3 --> O2
+    C2 --> O3
+    A3 --> O4
+
+    style INPUT fill:#DBEAFE,stroke:#3B82F6
+    style NORMALIZE fill:#D1FAE5,stroke:#10B981
+    style ANALYZE fill:#FEF3C7,stroke:#F59E0B
+    style CALCULATE fill:#EDE9FE,stroke:#8B5CF6
+    style OUTPUT fill:#FCE7F3,stroke:#EC4899

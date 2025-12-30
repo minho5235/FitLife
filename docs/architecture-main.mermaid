@@ -1,0 +1,63 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4F46E5', 'primaryTextColor': '#fff', 'primaryBorderColor': '#4338CA', 'lineColor': '#6366F1', 'secondaryColor': '#10B981', 'tertiaryColor': '#F3F4F6'}}}%%
+
+flowchart TB
+    subgraph USER["👤 사용자"]
+        U1[웹 브라우저]
+    end
+
+    subgraph FRONTEND["🖥️ Frontend Layer"]
+        ST[Streamlit App]
+        ST --> |채팅 UI| CHAT[💬 AI 상담]
+        ST --> |입력 폼| INPUT[📝 건강 데이터 입력]
+        ST --> |시각화| VIZ[📊 분석 결과]
+    end
+
+    subgraph BACKEND["🌐 Backend Layer - FastAPI"]
+        API[API Server :8000]
+        API --> EP1["/chat"]
+        API --> EP2["/analyze"]
+        API --> EP3["/stats"]
+    end
+
+    subgraph AI["🤖 AI/ML Layer"]
+        subgraph RAG["🔍 RAG Module"]
+            KB[Knowledge Base]
+            EMB[Embedding]
+            SEARCH[Vector Search]
+            GEN[Answer Generation]
+        end
+        
+        subgraph XAI["💡 XAI Module"]
+            ANALYZE[Health Analysis]
+            CONTRIB[기여도 계산]
+            EXPLAIN[설명 생성]
+        end
+    end
+
+    subgraph EXTERNAL["☁️ External Services"]
+        GEMINI[Google Gemini API]
+    end
+
+    subgraph DATA["🗄️ Data Layer"]
+        CHROMA[(ChromaDB)]
+        FOODS[(음식 DB)]
+        EXERCISE[(운동 DB)]
+        GUIDE[(가이드라인)]
+    end
+
+    U1 <--> ST
+    ST <--> API
+    EP1 <--> RAG
+    EP2 <--> XAI
+    RAG <--> GEMINI
+    RAG <--> CHROMA
+    CHROMA --- FOODS
+    CHROMA --- EXERCISE
+    CHROMA --- GUIDE
+
+    style USER fill:#EEF2FF,stroke:#4F46E5
+    style FRONTEND fill:#F0FDF4,stroke:#10B981
+    style BACKEND fill:#FEF3C7,stroke:#F59E0B
+    style AI fill:#EDE9FE,stroke:#8B5CF6
+    style EXTERNAL fill:#DBEAFE,stroke:#3B82F6
+    style DATA fill:#F3F4F6,stroke:#6B7280

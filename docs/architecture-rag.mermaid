@@ -1,0 +1,49 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#10B981', 'primaryTextColor': '#fff', 'lineColor': '#34D399'}}}%%
+
+flowchart LR
+    subgraph INPUT["📥 입력"]
+        Q[사용자 질문]
+        P[사용자 프로필]
+    end
+
+    subgraph EMBEDDING["🔢 임베딩"]
+        E1[Query Embedding]
+        E2[Google Embedding API]
+    end
+
+    subgraph RETRIEVAL["🔍 검색"]
+        V[(ChromaDB)]
+        S[Similarity Search]
+        R[Top-K Documents]
+    end
+
+    subgraph GENERATION["✨ 생성"]
+        C[Context 구성]
+        PR[Prompt 생성]
+        LLM[Gemini LLM]
+    end
+
+    subgraph OUTPUT["📤 출력"]
+        A[Answer]
+        SR[Sources]
+        CF[Confidence]
+    end
+
+    Q --> E1
+    E1 --> E2
+    E2 --> S
+    V --> S
+    S --> R
+    R --> C
+    P --> C
+    C --> PR
+    PR --> LLM
+    LLM --> A
+    R --> SR
+    S --> CF
+
+    style INPUT fill:#DBEAFE,stroke:#3B82F6
+    style EMBEDDING fill:#D1FAE5,stroke:#10B981
+    style RETRIEVAL fill:#FEF3C7,stroke:#F59E0B
+    style GENERATION fill:#EDE9FE,stroke:#8B5CF6
+    style OUTPUT fill:#FCE7F3,stroke:#EC4899
