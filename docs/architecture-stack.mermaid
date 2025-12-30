@@ -1,0 +1,57 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4F46E5'}}}%%
+
+flowchart TB
+    subgraph FRONTEND["🖥️ Frontend"]
+        direction LR
+        F1[Streamlit]
+        F2[Plotly]
+    end
+
+    subgraph BACKEND["⚙️ Backend"]
+        direction LR
+        B1[FastAPI]
+        B2[Pydantic]
+        B3[Uvicorn]
+    end
+
+    subgraph AI["🤖 AI/ML"]
+        direction LR
+        A1[LangChain]
+        A2[ChromaDB]
+        A3[SHAP]
+    end
+
+    subgraph LLM["☁️ LLM"]
+        direction LR
+        L1[Google Gemini]
+        L2[Embedding API]
+    end
+
+    subgraph DATA["📊 Data"]
+        direction LR
+        D1[Pandas]
+        D2[NumPy]
+        D3[Scikit-learn]
+    end
+
+    subgraph INFRA["🔧 Infrastructure"]
+        direction LR
+        I1[Python 3.11]
+        I2[Conda]
+        I3[Git]
+    end
+
+    FRONTEND --> BACKEND
+    BACKEND --> AI
+    AI --> LLM
+    AI --> DATA
+    INFRA -.-> FRONTEND
+    INFRA -.-> BACKEND
+    INFRA -.-> AI
+
+    style FRONTEND fill:#F0FDF4,stroke:#10B981
+    style BACKEND fill:#FEF3C7,stroke:#F59E0B
+    style AI fill:#EDE9FE,stroke:#8B5CF6
+    style LLM fill:#DBEAFE,stroke:#3B82F6
+    style DATA fill:#FEE2E2,stroke:#EF4444
+    style INFRA fill:#F3F4F6,stroke:#6B7280
