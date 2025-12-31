@@ -2,8 +2,8 @@
 RAG 체인 - LLM과 지식베이스 연동
 """
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage
 from typing import List, Dict, Optional
 
 from .knowledge_base import KnowledgeBase
