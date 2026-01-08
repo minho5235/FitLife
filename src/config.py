@@ -25,9 +25,9 @@ COLLECTION_NAME = "fitlife_knowledge"
 EMBEDDING_MODEL = "models/embedding-001"  # Google 임베딩 모델
 
 # LLM 설정
-LLM_MODEL = "gemini-1.5-flash"  # 또는 "gemini-1.5-pro"
-LLM_TEMPERATURE = 0.7
-LLM_MAX_TOKENS = 2048
+LLM_MODEL = "gemini-2.5-flash"  # 또는 "gemini-1.5-pro"
+LLM_TEMPERATURE = 1.0
+LLM_MAX_TOKENS = 4096
 
 # RAG 설정
 RAG_TOP_K = 5  # 검색할 문서 수

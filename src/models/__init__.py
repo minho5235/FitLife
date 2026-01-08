@@ -1,1 +1,2 @@
-# Models module (이상 감지 모델 등)
+from .user_profile import UserProfile, Disease, Allergy, DISEASE_EXCLUSIONS, ALLERGY_EXCLUSIONS, DISEASE_RECOMMENDATIONS
+__all__ = ["UserProfile", "Disease", "Allergy", "DISEASE_EXCLUSIONS", "ALLERGY_EXCLUSIONS", "DISEASE_RECOMMENDATIONS"]

@@ -1,9 +1,3 @@
-"""
-FitLife AI - 메인 패키지
-"""
-from . import config
-from . import rag
-from . import xai
-from . import api
-
-__version__ = "1.0.0"
+"""FitLife AI 2.0"""
+from . import models, rag, xai, utils, vision, data
+__version__ = "2.0.0"

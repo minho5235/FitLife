@@ -2,9 +2,8 @@
 RAG 체인 - LLM과 지식베이스 연동
 """
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import HumanMessage, SystemMessage
-from typing import List, Dict, Optional
+from langchain_core.messages import HumanMessage, SystemMessage
+from typing import List, Dict, Optional, Union
 
 from .knowledge_base import KnowledgeBase
 from ..config import GOOGLE_API_KEY, LLM_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS
@@ -14,10 +13,8 @@ class FitLifeRAG:
     """FitLife AI RAG 시스템"""
     
     def __init__(self):
-        # 지식베이스 초기화
         self.kb = KnowledgeBase()
         
-        # LLM 초기화
         self.llm = ChatGoogleGenerativeAI(
             model=LLM_MODEL,
             google_api_key=GOOGLE_API_KEY,
@@ -25,7 +22,6 @@ class FitLifeRAG:
             max_output_tokens=LLM_MAX_TOKENS
         )
         
-        # 시스템 프롬프트
         self.system_prompt = """당신은 FitLife AI, 건강 관리 전문 AI 어시스턴트입니다.
 
 역할:
@@ -37,7 +33,6 @@ class FitLifeRAG:
 1. 건강 상태 분석
 2. 맞춤 추천 (식단/운동)
 3. 추천 이유 및 근거
-4. 참고 출처
 
 주의사항:
 - 항상 친절하고 이해하기 쉽게 설명합니다.
@@ -47,7 +42,7 @@ class FitLifeRAG:
     def query(
         self, 
         user_query: str, 
-        user_profile: Optional[Dict] = None,
+        user_profile: Optional[Union[Dict, object]] = None,
         search_categories: Optional[List[str]] = None
     ) -> Dict:
         """
@@ -55,15 +50,8 @@ class FitLifeRAG:
         
         Args:
             user_query: 사용자 질문
-            user_profile: 사용자 프로필 (키, 몸무게, 목표 등)
+            user_profile: 사용자 프로필 (Dict 또는 UserProfile 객체)
             search_categories: 검색할 카테고리 필터
-            
-        Returns:
-            {
-                "answer": "응답 텍스트",
-                "sources": [검색된 문서들],
-                "confidence": 신뢰도
-            }
         """
         # 1. 지식베이스 검색
         search_results = []
@@ -116,10 +104,10 @@ class FitLifeRAG:
         
         context_parts = []
         for i, result in enumerate(search_results, 1):
-            source = result["metadata"].get("source", "출처 미상")
-            title = result["metadata"].get("title", "")
-            content = result["content"]
-            score = result["score"]
+            source = result.get("metadata", {}).get("source", "출처 미상")
+            title = result.get("metadata", {}).get("title", "")
+            content = result.get("content", "")
+            score = result.get("score", 0)
             
             context_parts.append(
                 f"[자료 {i}] (출처: {source}, 유사도: {score:.2f})\n"
@@ -128,24 +116,51 @@ class FitLifeRAG:
         
         return "\n\n".join(context_parts)
     
-    def _format_profile(self, profile: Dict) -> str:
-        """사용자 프로필 포맷팅"""
+    def _format_profile(self, profile: Union[Dict, object]) -> str:
+        """사용자 프로필 포맷팅 - Dict 또는 UserProfile 객체 모두 지원"""
         parts = ["[사용자 정보]"]
         
-        if "age" in profile:
-            parts.append(f"- 나이: {profile['age']}세")
-        if "gender" in profile:
-            parts.append(f"- 성별: {profile['gender']}")
-        if "height" in profile:
-            parts.append(f"- 키: {profile['height']}cm")
-        if "weight" in profile:
-            parts.append(f"- 체중: {profile['weight']}kg")
-        if "goal" in profile:
-            parts.append(f"- 목표: {profile['goal']}")
-        if "activity_level" in profile:
-            parts.append(f"- 활동량: {profile['activity_level']}")
-        if "health_conditions" in profile:
-            parts.append(f"- 건강 상태: {', '.join(profile['health_conditions'])}")
+        # Dict인지 객체인지 확인
+        if isinstance(profile, dict):
+            # 딕셔너리인 경우
+            if "age" in profile:
+                parts.append(f"- 나이: {profile['age']}세")
+            if "gender" in profile:
+                parts.append(f"- 성별: {profile['gender']}")
+            if "height" in profile:
+                parts.append(f"- 키: {profile['height']}cm")
+            if "weight" in profile:
+                parts.append(f"- 체중: {profile['weight']}kg")
+            if "goal" in profile:
+                parts.append(f"- 목표: {profile['goal']}")
+            if "activity_level" in profile:
+                parts.append(f"- 활동량: {profile['activity_level']}")
+            if "diseases" in profile and profile["diseases"]:
+                parts.append(f"- 질환: {', '.join(profile['diseases'])}")
+            if "allergies" in profile and profile["allergies"]:
+                parts.append(f"- 알러지: {', '.join(profile['allergies'])}")
+        else:
+            # UserProfile 객체인 경우
+            if hasattr(profile, 'age'):
+                parts.append(f"- 나이: {profile.age}세")
+            if hasattr(profile, 'gender'):
+                parts.append(f"- 성별: {profile.gender}")
+            if hasattr(profile, 'height'):
+                parts.append(f"- 키: {profile.height}cm")
+            if hasattr(profile, 'weight'):
+                parts.append(f"- 체중: {profile.weight}kg")
+            if hasattr(profile, 'bmi'):
+                parts.append(f"- BMI: {profile.bmi} ({profile.bmi_status})")
+            if hasattr(profile, 'goal'):
+                parts.append(f"- 목표: {profile.goal}")
+            if hasattr(profile, 'activity_level'):
+                parts.append(f"- 활동량: {profile.activity_level}")
+            if hasattr(profile, 'diseases') and profile.diseases:
+                parts.append(f"- 질환: {', '.join(profile.diseases)}")
+            if hasattr(profile, 'allergies') and profile.allergies:
+                parts.append(f"- 알러지: {', '.join(profile.allergies)}")
+            if hasattr(profile, 'recommended_calories'):
+                parts.append(f"- 권장 칼로리: {profile.recommended_calories}kcal")
         
         return "\n".join(parts)
     
@@ -154,27 +169,5 @@ class FitLifeRAG:
         if not search_results:
             return 0.0
         
-        # 상위 결과들의 평균 유사도
-        scores = [r["score"] for r in search_results[:3]]
+        scores = [r.get("score", 0) for r in search_results[:3]]
         return sum(scores) / len(scores) if scores else 0.0
-
-
-# 테스트용
-if __name__ == "__main__":
-    rag = FitLifeRAG()
-    
-    result = rag.query(
-        user_query="요즘 피곤하고 근육이 빠지는 느낌이에요. 뭘 먹고 운동해야 할까요?",
-        user_profile={
-            "age": 35,
-            "gender": "남성",
-            "height": 175,
-            "weight": 78,
-            "goal": "체력향상"
-        }
-    )
-    
-    print("=" * 50)
-    print(result["answer"])
-    print("=" * 50)
-    print(f"신뢰도: {result['confidence']:.2f}")
