@@ -1,19 +1,17 @@
 """
-RAG 모듈 - 지식베이스 구축 및 검색
+RAG 모듈 - 지식베이스 구축 및 검색 (HuggingFace 무료 임베딩 버전)
 """
 import chromadb
 from chromadb.config import Settings
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List, Dict, Optional
 import json
 from pathlib import Path
 
-from .config import (
-    GOOGLE_API_KEY, 
+from src.config import (
     CHROMA_PERSIST_DIR, 
     COLLECTION_NAME,
-    EMBEDDING_MODEL,
     RAG_TOP_K
 )
 
@@ -22,11 +20,14 @@ class KnowledgeBase:
     """건강 지식베이스 관리 클래스"""
     
     def __init__(self):
-        # 임베딩 모델 초기화
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model=EMBEDDING_MODEL,
-            google_api_key=GOOGLE_API_KEY
+        # 임베딩 모델 초기화 (HuggingFace - 무료, 로컬)
+        print("   임베딩 모델 로딩 중... (처음엔 다운로드로 시간이 걸릴 수 있어요)")
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
         )
+        print("   임베딩 모델 로딩 완료!")
         
         # ChromaDB 초기화
         self.client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
@@ -104,13 +105,14 @@ class KnowledgeBase:
         
         # 결과 정리
         search_results = []
-        for i in range(len(results["ids"][0])):
-            search_results.append({
-                "id": results["ids"][0][i],
-                "content": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i],
-                "score": 1 - results["distances"][0][i]  # 거리를 유사도로 변환
-            })
+        if results["ids"] and len(results["ids"][0]) > 0:
+            for i in range(len(results["ids"][0])):
+                search_results.append({
+                    "id": results["ids"][0][i],
+                    "content": results["documents"][0][i],
+                    "metadata": results["metadatas"][0][i],
+                    "score": 1 - results["distances"][0][i]  # 거리를 유사도로 변환
+                })
         
         return search_results
     
