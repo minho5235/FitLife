@@ -1,5 +1,5 @@
 """
-RAG 체인 - LLM과 지식베이스 연동
+RAG 체인 - LLM과 지식베이스 연동 (Tuple 호환 패치)
 """
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -47,23 +47,18 @@ class FitLifeRAG:
     ) -> Dict:
         """
         사용자 질문에 대한 RAG 기반 응답 생성
-        
-        Args:
-            user_query: 사용자 질문
-            user_profile: 사용자 프로필 (Dict 또는 UserProfile 객체)
-            search_categories: 검색할 카테고리 필터
         """
-        # 1. 지식베이스 검색
-        search_results = []
+        # 1. 지식베이스 검색 (결과는 [(Document, score), ...] 형태)
+        search_results_raw = []
         if search_categories:
             for category in search_categories:
                 results = self.kb.search(user_query, top_k=3, category=category)
-                search_results.extend(results)
+                search_results_raw.extend(results)
         else:
-            search_results = self.kb.search(user_query, top_k=5)
+            search_results_raw = self.kb.search(user_query, top_k=5)
         
-        # 2. 컨텍스트 구성
-        context = self._build_context(search_results)
+        # 2. 컨텍스트 구성 (수정됨)
+        context = self._build_context(search_results_raw)
         
         # 3. 사용자 프로필 정보 추가
         profile_info = self._format_profile(user_profile) if user_profile else ""
@@ -90,24 +85,34 @@ class FitLifeRAG:
         
         response = self.llm.invoke(messages)
         
-        # 6. 결과 반환
+        # 6. 결과 반환 (프론트엔드 호환성을 위해 딕셔너리 리스트로 변환)
+        formatted_sources = []
+        for doc, score in search_results_raw:
+            source_item = doc.metadata.copy()
+            source_item['content'] = doc.page_content
+            source_item['score'] = score
+            formatted_sources.append(source_item)
+
         return {
             "answer": response.content,
-            "sources": search_results,
-            "confidence": self._calculate_confidence(search_results)
+            "sources": formatted_sources,
+            "confidence": self._calculate_confidence(search_results_raw)
         }
     
-    def _build_context(self, search_results: List[Dict]) -> str:
-        """검색 결과를 컨텍스트 문자열로 변환"""
+    def _build_context(self, search_results: List) -> str:
+        """
+        [수정됨] 검색 결과(튜플)를 컨텍스트 문자열로 변환
+        """
         if not search_results:
             return "관련 자료를 찾지 못했습니다."
         
         context_parts = []
-        for i, result in enumerate(search_results, 1):
-            source = result.get("metadata", {}).get("source", "출처 미상")
-            title = result.get("metadata", {}).get("title", "")
-            content = result.get("content", "")
-            score = result.get("score", 0)
+        # ★ 수정: (doc, score)로 언패킹
+        for i, (doc, score) in enumerate(search_results, 1):
+            # Document 객체에서 정보 추출
+            source = doc.metadata.get("source", "출처 미상")
+            title = doc.metadata.get("title", "제목 없음")
+            content = doc.page_content
             
             context_parts.append(
                 f"[자료 {i}] (출처: {source}, 유사도: {score:.2f})\n"
@@ -117,44 +122,29 @@ class FitLifeRAG:
         return "\n\n".join(context_parts)
     
     def _format_profile(self, profile: Union[Dict, object]) -> str:
-        """사용자 프로필 포맷팅 - Dict 또는 UserProfile 객체 모두 지원"""
+        """사용자 프로필 포맷팅"""
         parts = ["[사용자 정보]"]
         
-        # Dict인지 객체인지 확인
+        # Dict인지 객체인지 확인하여 처리 (기존 로직 유지)
         if isinstance(profile, dict):
-            # 딕셔너리인 경우
-            if "age" in profile:
-                parts.append(f"- 나이: {profile['age']}세")
-            if "gender" in profile:
-                parts.append(f"- 성별: {profile['gender']}")
-            if "height" in profile:
-                parts.append(f"- 키: {profile['height']}cm")
-            if "weight" in profile:
-                parts.append(f"- 체중: {profile['weight']}kg")
-            if "goal" in profile:
-                parts.append(f"- 목표: {profile['goal']}")
-            if "activity_level" in profile:
-                parts.append(f"- 활동량: {profile['activity_level']}")
+            if "age" in profile: parts.append(f"- 나이: {profile['age']}세")
+            if "gender" in profile: parts.append(f"- 성별: {profile['gender']}")
+            if "height" in profile: parts.append(f"- 키: {profile['height']}cm")
+            if "weight" in profile: parts.append(f"- 체중: {profile['weight']}kg")
+            if "goal" in profile: parts.append(f"- 목표: {profile['goal']}")
+            if "activity_level" in profile: parts.append(f"- 활동량: {profile['activity_level']}")
             if "diseases" in profile and profile["diseases"]:
                 parts.append(f"- 질환: {', '.join(profile['diseases'])}")
             if "allergies" in profile and profile["allergies"]:
                 parts.append(f"- 알러지: {', '.join(profile['allergies'])}")
         else:
-            # UserProfile 객체인 경우
-            if hasattr(profile, 'age'):
-                parts.append(f"- 나이: {profile.age}세")
-            if hasattr(profile, 'gender'):
-                parts.append(f"- 성별: {profile.gender}")
-            if hasattr(profile, 'height'):
-                parts.append(f"- 키: {profile.height}cm")
-            if hasattr(profile, 'weight'):
-                parts.append(f"- 체중: {profile.weight}kg")
-            if hasattr(profile, 'bmi'):
-                parts.append(f"- BMI: {profile.bmi} ({profile.bmi_status})")
-            if hasattr(profile, 'goal'):
-                parts.append(f"- 목표: {profile.goal}")
-            if hasattr(profile, 'activity_level'):
-                parts.append(f"- 활동량: {profile.activity_level}")
+            if hasattr(profile, 'age'): parts.append(f"- 나이: {profile.age}세")
+            if hasattr(profile, 'gender'): parts.append(f"- 성별: {profile.gender}")
+            if hasattr(profile, 'height'): parts.append(f"- 키: {profile.height}cm")
+            if hasattr(profile, 'weight'): parts.append(f"- 체중: {profile.weight}kg")
+            if hasattr(profile, 'bmi'): parts.append(f"- BMI: {profile.bmi} ({profile.bmi_status})")
+            if hasattr(profile, 'goal'): parts.append(f"- 목표: {profile.goal}")
+            if hasattr(profile, 'activity_level'): parts.append(f"- 활동량: {profile.activity_level}")
             if hasattr(profile, 'diseases') and profile.diseases:
                 parts.append(f"- 질환: {', '.join(profile.diseases)}")
             if hasattr(profile, 'allergies') and profile.allergies:
@@ -164,10 +154,13 @@ class FitLifeRAG:
         
         return "\n".join(parts)
     
-    def _calculate_confidence(self, search_results: List[Dict]) -> float:
-        """검색 결과 기반 신뢰도 계산"""
+    def _calculate_confidence(self, search_results: List) -> float:
+        """
+        [수정됨] 검색 결과(튜플) 기반 신뢰도 계산
+        """
         if not search_results:
             return 0.0
         
-        scores = [r.get("score", 0) for r in search_results[:3]]
+        # ★ 수정: 튜플에서 점수만 추출
+        scores = [score for doc, score in search_results[:3]]
         return sum(scores) / len(scores) if scores else 0.0

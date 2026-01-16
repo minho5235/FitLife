@@ -4,7 +4,6 @@
 <div align="center">
 =======
 # 🏃 FitLife AI 2.0
->>>>>>> fe6b1ef61d720a5cc96136a347a5df4fdf9a5bae
 
 > **AI 기반 개인 맞춤형 건강 관리 시스템**
 > 
@@ -65,7 +64,12 @@ pip install -r requirements.txt
 ### 2. API 키 설정
 `.env` 파일:
 ```
-GOOGLE_API_KEY=your_key_here
+GOOGLE_API_KEY=
+FOOD_SAFETY_API_
+DatabasePassword=
+SUPABASE_URL=
+SUPABASE_KEY=
+DATABASE_URL=
 ```
 
 ### 3. 지식베이스 구축
@@ -114,15 +118,10 @@ streamlit run frontend/app.py
 
 ---
 
-<<<<<<< HEAD
 <div align="center">
 
 **Made with ❤️ by Team FitLife**
 
-[⬆ 맨 위로](#-fitlife-ai)
-
 </div>
->>>>>>> 1253793da00a8751ce218a3491bdc42561c3617d
 =======
 **🏃 FitLife AI 2.0** - 당신의 건강한 삶을 위한 AI 파트너
->>>>>>> fe6b1ef61d720a5cc96136a347a5df4fdf9a5bae
