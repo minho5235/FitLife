@@ -1,148 +1,86 @@
 """
-FitLife AI - 지식베이스 구축 스크립트 v2.1
-전체 데이터 로드 (국민체력100 500개 전체)
+FitLife AI - 통합 데이터 로더 (API + 동영상)
+이 스크립트 하나로 모든 데이터를 Supabase에 업로드합니다.
 """
-import json
 import sys
 from pathlib import Path
 
+# 프로젝트 루트 경로 설정
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
-load_dotenv()
-
-from src.rag.knowledge_base import KnowledgeBase
-
-
-def load_json_file(filepath):
-    with open(filepath, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
+from src.data.public_data_loader import PublicDataLoader
 
 def main():
     print("=" * 60)
-    print("🏃 FitLife AI - 지식베이스 구축 v2.1")
+    print("🚀 FitLife AI - 지식베이스 데이터 통합 업로드")
     print("=" * 60)
     
-    kb = KnowledgeBase()
+    loader = PublicDataLoader()
     
-    data_path = project_root / "data"
-    raw_path = data_path / "raw"
-    processed_path = data_path / "processed"
-    
-    total_added = 0
-    
-    # 1. 음식 데이터
-    foods_file = raw_path / "foods.json"
-    if foods_file.exists():
-        print("\n📦 음식 데이터 로딩...")
-        foods = load_json_file(foods_file)
-        
-        documents = []
-        for food in foods:
-            content = f"{food['name']}: 칼로리 {food.get('calories', 0)}kcal, 단백질 {food.get('protein', 0)}g, 탄수화물 {food.get('carbs', 0)}g, 지방 {food.get('fat', 0)}g, 당류 {food.get('sugar', 0)}g, 나트륨 {food.get('sodium', 0)}mg. "
-            if food.get('benefits'):
-                content += f"효능: {', '.join(food['benefits'])}. "
-            if food.get('description'):
-                content += food['description']
-            if food.get('health_tags'):
-                content += f" 태그: {', '.join(food['health_tags'])}"
-            
-            documents.append({
-                "content": content,
-                "metadata": {
-                    "category": "food",
-                    "title": food['name'],
-                    "source": food.get('source', '식품안전나라'),
-                    "health_tags": ",".join(food.get('health_tags', []))
-                }
-            })
-        
-        kb.add_documents(documents, category="food")
-        total_added += len(documents)
-        print(f"✅ 음식 데이터: {len(foods)}개 완료")
-    
-    # 2. 운동 데이터
-    exercises_file = raw_path / "exercises.json"
-    if exercises_file.exists():
-        print("\n🏋️ 운동 데이터 로딩...")
-        exercises = load_json_file(exercises_file)
-        
-        documents = []
-        for ex in exercises:
-            content = f"{ex['name']}: {ex.get('category', '')} 운동, 강도 {ex.get('intensity', '보통')}, 시간당 {ex.get('calories_per_hour', 0)}kcal 소모. "
-            if ex.get('target_muscles'):
-                content += f"주요 부위: {', '.join(ex['target_muscles'])}. "
-            if ex.get('benefits'):
-                content += f"효과: {', '.join(ex['benefits'])}. "
-            if ex.get('description'):
-                content += ex['description']
-            
-            documents.append({
-                "content": content,
-                "metadata": {
-                    "category": "exercise",
-                    "title": ex['name'],
-                    "source": ex.get('source', 'ACSM'),
-                    "intensity": ex.get('intensity', '보통'),
-                    "health_tags": ",".join(ex.get('health_tags', []))
-                }
-            })
-        
-        kb.add_documents(documents, category="exercise")
-        total_added += len(documents)
-        print(f"✅ 운동 데이터: {len(exercises)}개 완료")
-    
-    # 3. 국민체력100 (전체)
-    nfa_file = processed_path / "exercises_nfa.json"
-    if nfa_file.exists():
-        print("\n🏃 국민체력100 운동 데이터 로딩 (전체)...")
-        nfa_exercises = load_json_file(nfa_file)
-        
-        documents = []
-        for ex in nfa_exercises:  # 전체 로드
-            content = f"{ex['name']}: {ex.get('category', '')} 운동, {ex.get('phase', '')} 단계, 강도 {ex.get('intensity', '보통')}, 시간당 약 {ex.get('calories_per_hour', 200)}kcal 소모. "
-            if ex.get('health_tags'):
-                content += f"효과: {', '.join(ex['health_tags'])}. "
-            if ex.get('suitable_for'):
-                content += f"대상: {', '.join(ex['suitable_for'])}. "
-            content += f"(인기도: {ex.get('popularity', 0)})"
-            
-            documents.append({
-                "content": content,
-                "metadata": {
-                    "category": "exercise",
-                    "title": ex['name'],
-                    "source": "국민체력100",
-                    "phase": ex.get('phase', ''),
-                    "intensity": ex.get('intensity', '보통'),
-                    "health_tags": ",".join(ex.get('health_tags', []))
-                }
-            })
-        
-        kb.add_documents(documents, category="exercise")
-        total_added += len(documents)
-        print(f"✅ 국민체력100 데이터: {len(documents)}개 완료")
-    
-    # 완료
-    print("\n" + "=" * 60)
-    print(f"🎉 지식베이스 구축 완료!")
-    print(f"📊 총 문서 수: {total_added}개")
-    
-    stats = kb.get_stats()
-    print(f"📈 ChromaDB 문서: {stats.get('total_documents', 'N/A')}개")
-    
-    # 테스트
-    print("\n🔍 테스트 검색: '다이어트 운동'")
-    results = kb.search("다이어트에 좋은 유산소 운동", top_k=3)
-    for r in results:
-        title = r.get('metadata', {}).get('title', '')
-        source = r.get('metadata', {}).get('source', '')
-        print(f"   - {title} ({source})")
-    
-    print("=" * 60)
+    # ★ [핵심] 여기에 초기화 코드를 추가하세요!
+    print("\n🧹 [중복 방지] 기존 데이터를 모두 삭제하고 새로 시작합니다...")
+    loader.kb.clear()
 
+    # ---------------------------------------------------------
+    # 1. [API] 건강 식재료 데이터 자동 수집
+    # ---------------------------------------------------------
+    print("\n[단계 1/2] 식품안전나라 API 데이터 수집")
+    
+    # 엄선된 건강 식재료 리스트
+    target_foods = [
+        # === 1. 탄수화물 (GI지수가 낮거나 영양가 높은 곡물) ===
+        "현미", "현미밥", "고구마", "귀리", "오트밀", "통밀빵", "호밀빵",
+        "단호박", "감자", "메밀", "메밀면", "퀴노아", "렌틸콩", "병아리콩",
+        "옥수수", "보리밥", "잡곡밥", "곤약", "곤약쌀",
+        
+        # === 2. 단백질 (육류/가금류/알류) ===
+        "닭가슴살", "닭안심", "닭다리살", "계란", "메추리알", "오리고기",
+        "소고기", "돼지고기",
+        
+        # === 3. 수산물 (오메가3 및 고단백) ===
+        "고등어", "삼치", "연어", "참치", "오징어", "문어", "낙지",
+        "새우", "굴", "전복", "장어", "황태", "조기", "갈치", "쭈꾸미",
+        
+        # === 4. 식물성 단백질 & 콩류 ===
+        "두부", "연두부", "순두부", "두유", "콩물", "서리태", "검은콩", "낫또",
+        
+        # === 5. 채소 (식이섬유 & 비타민) ===
+        "브로콜리", "시금치", "양배추", "당근", "양파", "오이", "상추", "깻잎",
+        "파프리카", "피망", "가지", "호박", "애호박", "부추", "미나리",
+        "아스파라거스", "케일", "셀러리", "숙주나물", "콩나물", "무", "배추",
+        "여주", "돼지감자", # 당뇨/혈당 관리용
+        
+        # === 6. 버섯 & 해조류 (면역력 & 무기질) ===
+        "새송이버섯", "팽이버섯", "표고버섯", "느타리버섯", "목이버섯",
+        "미역", "다시마", "김", "파래", "매생이",
+        
+        # === 7. 과일 (비타민 & 항산화 - 당분 고려) ===
+        "사과", "바나나", "토마토", "방울토마토", "블루베리", "딸기",
+        "키위", "자몽", "오렌지", "귤", "수박", "참외", "배", "복숭아",
+        "아보카도", "레몬", "라임",
+        
+        # === 8. 견과류/유제품/유지류 ===
+        "아몬드", "호두", "캐슈넛", "땅콩", "피스타치오", "브라질너트",
+        "우유", "저지방우유", "그릭요거트", "플레인요거트", "스트링치즈", "리코타치즈",
+        "올리브유", "들기름", "참기름", "코코넛오일"
+    ]
+    
+    loader.fetch_and_upload_from_api(target_foods)
+    
+    # ---------------------------------------------------------
+    # 2. [CSV] 국민체력100 동영상 데이터 업로드
+    # ---------------------------------------------------------
+    print("\n[단계 2/2] 국민체력100 동영상 데이터 업로드")
+    
+    # data 폴더에 넣은 파일명을 정확히 적어주세요!
+    video_filename = "서울올림픽기념국민체육진흥공단_국민체력100 운동처방 동영상주소 정보_20210727 (1).csv"
+    
+    loader.upload_video_csv_to_supabase(video_filename)
+    
+    print("\n" + "=" * 60)
+    print("🎉 모든 데이터 업로드 작업이 완료되었습니다!")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()

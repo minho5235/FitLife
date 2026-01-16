@@ -1,7 +1,8 @@
 """
 RAG 모듈
 """
-from .knowledge_base import KnowledgeBase, load_knowledge_from_json
+# [수정] load_knowledge_from_json을 삭제했습니다.
+from .knowledge_base import KnowledgeBase
 from .chain import FitLifeRAG
 
-__all__ = ["KnowledgeBase", "FitLifeRAG", "load_knowledge_from_json"]
+__all__ = ["KnowledgeBase", "FitLifeRAG"]
