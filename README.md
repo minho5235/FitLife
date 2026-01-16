@@ -1,7 +1,5 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 # FitLife
-대거니
+
 =======
 <div align="center">
 =======
