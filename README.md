@@ -1,6 +1,5 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 # FitLife
+
 =======
 <div align="center">
 =======
