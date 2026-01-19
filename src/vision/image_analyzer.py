@@ -16,12 +16,12 @@ class ImageAnalyzer:
     
     def __init__(self):
         self.vision_model = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             google_api_key=GOOGLE_API_KEY,
             temperature=0.3
         )
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             google_api_key=GOOGLE_API_KEY,
             temperature=0.7
         )
