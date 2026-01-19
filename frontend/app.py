@@ -42,7 +42,8 @@ def init_rag():
 
 def init_analyzer():
     if st.session_state.analyzer is None:
-        st.session_state.analyzer = ImageAnalyzer()
+        with st.spinner("🔄 이미지 분석기 초기화 중..."):
+            st.session_state.analyzer = ImageAnalyzer()
 
 def create_profile() -> UserProfile:
     # 사이드바 입력값(session_state)을 기반으로 프로필 객체 생성
@@ -93,7 +94,6 @@ def main():
             
             if st.button("가입하기"):
                 if new_user and new_pw and new_name:
-                    # 기본값으로 가입 (나중에 사이드바에서 수정 가능)
                     success = st.session_state.user_manager.register(
                         new_user, new_pw, new_name, 30, "남성", 170, 70
                     )
@@ -109,7 +109,6 @@ def main():
     # 2. 로그인 후 메인 화면
     # ---------------------------------------------------------
     
-    # 로그인 유저 정보 가져오기
     user = st.session_state.current_user
     
     # ===== 사이드바 (DB 정보 연동) =====
@@ -127,7 +126,6 @@ def main():
         
         with st.expander("📋 기본 정보", expanded=True):
             col1, col2 = st.columns(2)
-            # DB 값을 초기값(value)으로 설정
             with col1: 
                 st.number_input("나이", 10, 100, value=user.get('age', 30), key="age")
             with col2: 
@@ -145,11 +143,12 @@ def main():
             st.markdown(f"**BMI: :{bmi_color}[{profile.bmi}]** ({profile.bmi_status})")
         
         with st.expander("🏥 건강 상태"):
-            # DB 리스트 값을 기본 선택값(default)으로 설정
-            st.multiselect("질환", ["당뇨", "고혈압", "고지혈증", "위염", "관절염", "신장질환", "통풍"], 
-                           default=user.get('diseases', []), key="diseases")
-            st.multiselect("알러지", ["견과류", "갑각류", "유제품", "글루텐", "계란", "대두", "생선"], 
-                           default=user.get('allergies', []), key="allergies")
+            # ★ [수정됨] 전체 리스트를 제공하여 '생선' 등의 값이 있어도 에러가 나지 않게 함
+            all_diseases = ["당뇨", "고혈압", "고지혈증", "위염", "관절염", "신장질환", "통풍"]
+            all_allergies = ["견과류", "갑각류", "유제품", "글루텐", "계란", "대두", "생선"]
+
+            st.multiselect("질환", all_diseases, default=user.get('diseases', []), key="diseases")
+            st.multiselect("알러지", all_allergies, default=user.get('allergies', []), key="allergies")
         
         with st.expander("🎯 목표"):
             st.selectbox("건강 목표", ["건강유지", "체중감량", "근육증가", "체력향상", "스트레스해소"], key="goal")
@@ -165,50 +164,28 @@ def main():
         profile = create_profile()
         st.info(f"💡 권장 칼로리: **{profile.recommended_calories}kcal**")
         
-        if profile.diseases or profile.allergies:
-            st.warning(f"⚠️ 질환: {', '.join(profile.diseases) if profile.diseases else '없음'}\n🚫 알러지: {', '.join(profile.allergies) if profile.allergies else '없음'}")
-
-        # [추가됨] DB 업데이트 버튼
         if st.button("💾 정보 수정 저장"):
             try:
-                # 1. DB 연결
-                # (주의: .env가 로드되어 있어야 함 / 혹은 기존에 만든 get_connection 함수 사용)
                 conn = psycopg2.connect(os.getenv("DATABASE_URL"))
                 conn.autocommit = True
                 cur = conn.cursor()
 
-                # 2. 멀티셀렉트 리스트를 문자열로 변환 (DB가 TEXT 타입이므로)
-                # 예: ['당뇨', '고혈압'] -> "당뇨,고혈압"
                 diseases_str = ",".join(st.session_state.diseases)
                 allergies_str = ",".join(st.session_state.allergies)
 
-                # 3. UPDATE 쿼리 실행
-                # session_state에 있는 키값(age, gender...)들을 가져와서 DB에 덮어씌움
                 update_query = """
                 UPDATE users 
-                SET age = %s, 
-                    gender = %s, 
-                    height = %s, 
-                    weight = %s, 
-                    diseases = %s, 
-                    allergies = %s
+                SET age = %s, gender = %s, height = %s, weight = %s, diseases = %s, allergies = %s
                 WHERE username = %s;
                 """
-                
                 cur.execute(update_query, (
-                    st.session_state.age,
-                    st.session_state.gender,
-                    st.session_state.height,
-                    st.session_state.weight,
-                    diseases_str,
-                    allergies_str,
-                    user['username']  # 누구 정보를 바꿀지(WHERE 조건) 중요!
+                    st.session_state.age, st.session_state.gender, st.session_state.height,
+                    st.session_state.weight, diseases_str, allergies_str, user['username']
                 ))
 
-                # 4. 성공 메시지 및 세션 정보 갱신
                 st.success("성공적으로 수정되었습니다!")
                 
-                # DB가 바뀌었으니 현재 메모리에 있는 user 정보도 최신화
+                # 세션 정보 갱신
                 st.session_state.current_user['age'] = st.session_state.age
                 st.session_state.current_user['gender'] = st.session_state.gender
                 st.session_state.current_user['height'] = st.session_state.height
@@ -216,12 +193,8 @@ def main():
                 st.session_state.current_user['diseases'] = st.session_state.diseases
                 st.session_state.current_user['allergies'] = st.session_state.allergies
                 
-                # 잠시 후 새로고침 (선택사항)
-                # st.rerun() 
-
                 cur.close()
                 conn.close()
-
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
@@ -229,12 +202,12 @@ def main():
     st.title("🏃 FitLife AI 2.0")
     st.caption("AI 기반 개인 맞춤형 건강 관리 | 📸 이미지 분석 | 🍽️ 식단 추천 | 💪 운동 추천")
 
+    # 탭 구성
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 AI 상담", "📸 이미지 분석", "📊 건강 분석", "🍽️ 맞춤 추천", "📖 사용법"])
 
     # ===== 탭1: AI 상담 =====
     with tab1:
         st.header("💬 AI 건강 상담")
-        
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
@@ -246,23 +219,23 @@ def main():
             with st.chat_message("assistant"):
                 with st.spinner("🤔 생각 중..."):
                     init_rag()
-                    result = st.session_state.rag.query(prompt, create_profile())
+                    # 일반 상담은 모든 카테고리에서 검색
+                    result = st.session_state.rag.query(prompt, create_profile(), mode="general")
                     response = result.get("answer", "죄송합니다. 답변을 생성할 수 없습니다.")
                     st.markdown(response)
                     
                     if result.get("sources"):
                         with st.expander("📚 참고 자료"):
                             for src in result["sources"][:5]:
-                                title = src.get("metadata", {}).get("title", "")
-                                source = src.get("metadata", {}).get("source", "")
+                                title = src.get("title", "")
+                                source = src.get("source", "")
                                 if title: st.caption(f"• {title} ({source})")
             
             st.session_state.messages.append({"role": "assistant", "content": response})
 
-    # ===== 탭2: 이미지 분석 =====
+    # ===== 탭2: 이미지 분석 (복구됨) =====
     with tab2:
         st.header("📸 이미지 분석")
-        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -278,39 +251,26 @@ def main():
                     with st.spinner("🔬 분석 중..."):
                         init_analyzer()
                         analysis = st.session_state.analyzer.analyze_ingredients(food_image.getvalue())
-                        
                         if analysis.get("success"):
                             st.success("✅ 분석 완료!")
                             st.markdown("### 🥬 인식된 재료")
                             for ing in analysis.get("ingredients", []):
-                                freshness = {"신선": "🟢", "보통": "🟡", "주의": "🔴"}.get(ing.get("freshness", "보통"), "⚪")
-                                st.info(f"{freshness} **{ing['name']}** - {ing.get('quantity', '')} ({ing.get('category', '')})")
+                                st.info(f"**{ing['name']}** - {ing.get('quantity', '')} ({ing.get('category', '')})")
                             
-                            # 요리 추천
-                            ingredient_names = [ing["name"] for ing in analysis.get("ingredients", [])]
                             profile = create_profile()
                             restrictions = profile.allergies + profile.diseases
-                            
                             with st.spinner("🍳 요리 추천 중..."):
-                                recipes = st.session_state.analyzer.suggest_recipes(ingredient_names, restrictions, meal_type)
-                                if recipes.get("success"):
+                                recipes = st.session_state.analyzer.suggest_recipes([i["name"] for i in analysis.get("ingredients", [])], restrictions, meal_type)
+                                if recipes.get("recipes"):
                                     st.markdown("### 🍳 추천 요리")
                                     for recipe in recipes.get("recipes", []):
-                                        with st.expander(f"🍽️ {recipe.get('name', '요리')}", expanded=True):
-                                            st.write(f"**설명**: {recipe.get('description', '')}")
-                                            st.write(f"**조리시간**: {recipe.get('cooking_time', '-')} | **난이도**: {recipe.get('difficulty', '-')}")
-                                            nutrition = recipe.get("nutrition", {})
-                                            if nutrition:
-                                                c1, c2 = st.columns(2)
-                                                c1.metric("칼로리", f"{nutrition.get('calories', '-')}kcal")
-                                                c2.metric("단백질", f"{nutrition.get('protein', '-')}g")
-                                            steps = recipe.get("steps", [])
-                                            if steps:
-                                                st.write("**조리 방법:**")
-                                                for j, step in enumerate(steps, 1):
-                                                    st.write(f"{j}. {step}")
+                                        with st.expander(f"🍽️ {recipe.get('name', '요리')}"):
+                                            st.write(recipe.get('description', ''))
+                                            st.write("**조리 방법:**")
+                                            for j, step in enumerate(recipe.get('steps', []), 1):
+                                                st.write(f"{j}. {step}")
                         else:
-                            st.error(f"❌ 분석 실패: {analysis.get('error', '알 수 없는 오류')}")
+                            st.error("분석 실패")
         
         with col2:
             st.subheader("🏋️ 운동기구 분석")
@@ -318,53 +278,29 @@ def main():
             
             if exercise_image:
                 st.image(exercise_image, use_container_width=True)
-                target_area = st.selectbox("목표 부위", ["전신", "상체", "하체", "코어", "등", "가슴", "팔"])
-                fitness_level = st.selectbox("운동 수준", ["초급", "중급", "고급"])
-                duration = st.slider("운동 시간(분)", 10, 90, 30)
-                
+                target_area = st.selectbox("목표 부위", ["전신", "상체", "하체", "코어"])
                 if st.button("🔍 운동기구 분석", type="primary"):
                     with st.spinner("🔬 분석 중..."):
                         init_analyzer()
                         analysis = st.session_state.analyzer.analyze_equipment(exercise_image.getvalue())
-                        
                         if analysis.get("success"):
                             st.success("✅ 분석 완료!")
                             st.markdown("### 🏋️ 인식된 기구")
                             for eq in analysis.get("equipment", []):
-                                st.info(f"**{eq['name']}** ({eq.get('category', '')})")
+                                st.info(f"**{eq['name']}**")
                             
-                            env = analysis.get("environment", "")
-                            if env: st.write(f"🏠 환경: {env}")
-                            
-                            # 운동 추천
-                            equipment_names = [eq["name"] for eq in analysis.get("equipment", [])]
                             profile = create_profile()
-                            
-                            with st.spinner("💪 운동 루틴 생성 중..."):
-                                routine = st.session_state.analyzer.suggest_exercises(equipment_names, target_area, fitness_level, duration, profile.diseases)
+                            with st.spinner("💪 루틴 생성 중..."):
+                                routine = st.session_state.analyzer.suggest_exercises([e["name"] for e in analysis.get("equipment", [])], target_area, "중급", 30, profile.diseases)
                                 if routine.get("success"):
-                                    st.markdown(f"### 💪 {routine.get('routine_name', '맞춤 루틴')}")
-                                    st.caption(f"예상 소모 칼로리: {routine.get('estimated_calories', '-')}kcal")
-                                    
-                                    with st.expander("🔥 준비운동", expanded=True):
-                                        for ex in routine.get("warmup", []):
-                                            st.write(f"• **{ex['name']}** ({ex.get('duration', '')})")
-                                    
-                                    with st.expander("💪 본운동", expanded=True):
-                                        for ex in routine.get("main_workout", []):
-                                            st.write(f"• **{ex['name']}** - {ex.get('sets', '-')}세트 x {ex.get('reps', '-')} | 휴식 {ex.get('rest', '-')} | 부위: {ex.get('target_muscle', '')}")
-                                    
-                                    with st.expander("🧘 정리운동", expanded=True):
-                                        for ex in routine.get("cooldown", []):
-                                            st.write(f"• **{ex['name']}** ({ex.get('duration', '')})")
-                        else:
-                            st.error(f"❌ 분석 실패: {analysis.get('error', '')}")
+                                    st.markdown(f"### 💪 {routine.get('routine_name')}")
+                                    for ex in routine.get("main_workout", []):
+                                        st.write(f"• **{ex['name']}**: {ex.get('sets')}세트 x {ex.get('reps')}")
 
-    # ===== 탭3: 건강 분석 =====
+    # ===== 탭3: 건강 분석 (복구됨) =====
     with tab3:
         st.header("📊 건강 상태 분석")
-        
-        if st.button("🔍 건강 분석", type="primary"):
+        if st.button("🔍 내 건강 점수 확인하기", type="primary"):
             profile = create_profile()
             health_data = {
                 "protein_intake": profile.protein, "carb_intake": 300, "fat_intake": 65,
@@ -373,7 +309,6 @@ def main():
                 "stress_level": profile.stress_level, "water_intake": 1.5,
                 "height": profile.height, "weight": profile.weight
             }
-            
             analysis = st.session_state.xai.analyze_health_factors(health_data)
             
             col1, col2, col3 = st.columns(3)
@@ -384,64 +319,76 @@ def main():
             if analysis["issues"]:
                 st.markdown("### ⚠️ 개선 필요")
                 for issue in analysis["issues"]: st.warning(f"• {issue}")
-            
             if analysis["recommendations"]:
                 st.markdown("### 💡 추천")
                 for rec in analysis["recommendations"]: st.success(f"✓ {rec}")
 
-    # ===== 탭4: 맞춤 추천 =====
+    # ===== 탭4: 맞춤 추천 (핵심 수정!) =====
     with tab4:
         st.header("🍽️ 개인 맞춤 추천")
-        
         profile = create_profile()
         st.info(f"**{profile.gender}, {profile.age}세** | BMI: {profile.bmi} ({profile.bmi_status}) | 목표: {profile.goal}")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🥗 음식 추천", type="primary", use_container_width=True):
-                with st.spinner("검색 중..."):
-                    init_rag()
-                    result = st.session_state.rag.query(f"{profile.goal}에 좋은 건강한 음식 추천", profile)
-                    st.markdown(result.get("answer", ""))
-        
-        with col2:
-            if st.button("💪 운동 추천", type="primary", use_container_width=True):
-                with st.spinner("검색 중..."):
-                    init_rag()
-                    result = st.session_state.rag.query(f"{profile.goal}을 위한 {profile.activity_level} 활동량에 맞는 운동 추천", profile)
-                    st.markdown(result.get("answer", ""))
 
-    # ===== 탭5: 사용법 =====
+        # ★ Tabs로 분리
+        rec_tab1, rec_tab2 = st.tabs(["🥗 식단 추천", "💪 운동 추천"])
+
+        # 1. 식단 추천 탭
+        with rec_tab1:
+            st.subheader("🥗 맞춤형 식단 가이드")
+            if st.button("🍽️ 오늘의 식단 추천받기", type="primary", use_container_width=True):
+                with st.spinner("🥦 식품안전나라 데이터 검색 중..."):
+                    init_rag()
+                    # ★ mode="food" 전달
+                    result = st.session_state.rag.query(
+                        f"{profile.goal}에 좋은 영양가 있는 식단 추천해줘", 
+                        user_profile=profile,
+                        search_categories=['food'],
+                        mode="food"
+                    )
+                    st.markdown(result.get("answer", ""))
+                    
+                    if result.get("sources"):
+                        with st.expander("📊 영양 성분 데이터 (출처: 식품안전나라 API)"):
+                            for source in result.get("sources", []):
+                                st.caption(f"- {source.get('title')} (출처: {source.get('source')})")
+
+        # 2. 운동 추천 탭
+        with rec_tab2:
+            st.subheader("💪 맞춤형 운동 가이드")
+            if st.button("🏃 오늘의 운동 추천받기", type="primary", use_container_width=True):
+                with st.spinner("🏋️ 국민체력100 동영상 검색 중..."):
+                    init_rag()
+                    # ★ mode="exercise" 전달
+                    result = st.session_state.rag.query(
+                        f"{profile.goal}을 위한 {profile.activity_level} 수준의 운동 추천해줘", 
+                        user_profile=profile,
+                        search_categories=['video'],
+                        mode="exercise"
+                    )
+                    st.markdown(result.get("answer", ""))
+                    
+                    if result.get("sources"):
+                        st.divider()
+                        st.markdown("### 📺 관련 운동 영상")
+                        for source in result.get("sources", []):
+                            video_url = source.get('video_url', '')
+                            title = source.get('title', '운동 영상')
+                            if video_url:
+                                st.markdown(f"**[{title}]({video_url})**")
+
+    # ===== 탭5: 사용법 (복구됨) =====
     with tab5:
         st.header("📖 사용 방법")
         st.markdown("""
         ## 🆕 FitLife AI 2.0 기능
-        
         ### 📸 이미지 분석
         - **식재료 분석**: 냉장고 사진 → 재료 인식 → 요리 추천
         - **운동기구 분석**: 기구 사진 → 운동 루틴 추천
-        
         ### 🗃️ 공공데이터
         - **국민체력100**: 500개+ 운동 데이터
         - **식품안전나라**: 100개+ 음식 데이터
-        
-        ### 🎯 개인 맞춤
-        - 질환별 음식/운동 자동 필터링
-        - 알러지 식품 자동 제외
-        
-        ---
-        
-        ## 사용 방법
-        1. 왼쪽에서 **프로필** 설정
-        2. **AI 상담**에서 질문
-        3. **이미지 분석**으로 사진 기반 추천
-        4. **건강 분석**으로 상태 점검
-        
-        ---
-        
-        ⚠️ 이 서비스는 의료 진단을 대체하지 않습니다.
         """)
-
+    
     st.divider()
     st.caption("🏃 FitLife AI 2.0 | AI 기반 개인 맞춤형 건강 관리")
 
