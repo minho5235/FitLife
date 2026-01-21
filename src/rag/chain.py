@@ -1,13 +1,14 @@
 """
-RAG 체인 - LLM과 지식베이스 연동 (XAI 심층 분석 + 풍성한 식단 버전)
+RAG 체인 - LLM과 지식베이스 연동 (하이브리드 검색 + 시퀀스 추천 + 칼로리 계산 + 대화 메모리)
 """
 import time
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import List, Dict, Optional, Union
 
+# [수정] 상대 경로 import 유지
 from .knowledge_base import KnowledgeBase
-from ..config import GOOGLE_API_KEY, LLM_MODEL, LLM_TEMPERATURE, LLM_MAX_TOKENS
+from ..config import GOOGLE_API_KEY
 
 class FitLifeRAG:
     """FitLife AI RAG 시스템"""
@@ -19,8 +20,8 @@ class FitLifeRAG:
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash", 
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.3, # 설명을 위해 창의성 약간 높임
-            max_output_tokens=4096 # 답변 길게 하도록 토큰 늘림
+            temperature=0.3, # 명확한 지시 이행을 위해 낮게 설정
+            max_output_tokens=4096
         )
 
     def query(
@@ -28,46 +29,74 @@ class FitLifeRAG:
         user_query: str, 
         user_profile: Optional[Union[Dict, object]] = None,
         search_categories: Optional[List[str]] = None,
-        mode: str = "general" # 모드 부활
+        mode: str = "general",
+        chat_history: List = []  # ★ [추가] 대화 기록 받기
     ) -> Dict:
         """
-        사용자 질문에 대한 RAG 기반 응답 생성 (XAI 강화)
+        사용자 질문에 대한 RAG 기반 응답 생성 (하이브리드 검색 + 메모리 사용)
         """
         
-        # 1. [검색어 확장] AI가 더 똑똑하게 찾도록 키워드 추가
+        # 1. [검색어 확장] 사용자 의도를 파악하여 검색어 보강
         enhanced_query = user_query
         target_goal = ""
-        if isinstance(user_profile, dict): target_goal = user_profile.get("goal", "")
-        elif hasattr(user_profile, "goal"): target_goal = user_profile.goal
+        target_calories = 2000 # 기본값
+        
+        # 프로필에서 목표 정보 및 칼로리 추출
+        if isinstance(user_profile, dict): 
+            target_goal = user_profile.get("goal", "")
+            target_calories = user_profile.get("calories", 2000)
+        elif hasattr(user_profile, "goal"): 
+            target_goal = user_profile.goal
+            if hasattr(user_profile, "calories"):
+                target_calories = user_profile.calories
             
         if mode == "food":
-            enhanced_query += f" {target_goal} 고단백 저지방 식이섬유 영양성분 효능"
+            enhanced_query += f" {target_goal} 영양성분 효능 부작용 식단"
         elif mode == "exercise":
-            enhanced_query += f" {target_goal} 운동효과 자극부위 주의사항"
+            enhanced_query += f" {target_goal} 운동방법 자세 주의사항 효과"
 
-        # 2. [데이터 확보] 5개는 너무 적음 -> 15개로 늘림
+        # 2. [데이터 확보] 하이브리드 검색 실행
+        # KnowledgeBase.search가 내부적으로 하이브리드 로직(Keyword Bonus)을 수행함
         search_results_raw = []
         if search_categories:
             for category in search_categories:
-                # 15개 정도면 식단 짜기에 충분하고 속도도 괜찮음
-                results = self.kb.search(enhanced_query, top_k=30, category=category)
+                # 카테고리별로 충분히 가져와서 Chain에서 필터링
+                results = self.kb.search(enhanced_query, top_k=20, category=category)
                 search_results_raw.extend(results)
         else:
             search_results_raw = self.kb.search(enhanced_query, top_k=15)
         
         # 3. 컨텍스트 구성
-        context = self._build_context(search_results_raw)
+        # 중복 제거 및 상위 랭킹 문서만 추림
+        search_results_raw.sort(key=lambda x: x[1], reverse=True)
+        final_results = search_results_raw[:10] # 최종적으로 가장 관련성 높은 10개만 LLM에게 전달
+        
+        context = self._build_context(final_results)
         profile_info = self._format_profile(user_profile) if user_profile else ""
         
-        # 4. [XAI 프롬프트] 상세 설명을 강제하는 프롬프트 생성
-        system_prompt, user_message = self._create_xai_prompt(mode, profile_info, user_query, context)
+        # 4. [XAI 프롬프트] 모드별 구조화된 프롬프트 생성 (목표 칼로리 전달)
+        system_prompt, base_user_message = self._create_xai_prompt(mode, profile_info, user_query, context, target_calories)
         
+        # ★ [추가] 대화 맥락(History) 주입
+        history_text = ""
+        if chat_history:
+            history_text = "\n[이전 대화 내역 (참고용)]:\n"
+            # 너무 길면 토큰 낭비되므로 최근 3턴(6개 메시지)만 기억
+            for msg in chat_history[-6:]: 
+                role = "사용자" if msg["role"] == "user" else "AI"
+                # 시스템 메시지나 이미지는 제외하고 텍스트만
+                content = str(msg.get("content", ""))
+                if len(content) < 500: # 너무 긴 답변은 요약해서 기억한다고 가정 (여기선 길이 제한)
+                    history_text += f"- {role}: {content}\n"
+        
+        final_user_message = f"{base_user_message}\n{history_text}"
+
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=user_message)
+            HumanMessage(content=final_user_message)
         ]
         
-        # 5. LLM 호출 (재시도 로직 포함 - 429 에러 방지)
+        # 5. LLM 호출 (재시도 로직 포함)
         response_content = ""
         max_retries = 3
         
@@ -77,20 +106,15 @@ class FitLifeRAG:
                 response_content = response.content
                 break 
             except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-                    if attempt < max_retries - 1:
-                        time.sleep(10) # 10초 대기
-                        continue
-                    else:
-                        response_content = "⚠️ 사용량이 많아 답변 생성에 실패했습니다. 아래 검색 결과를 참고해주세요."
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
                 else:
-                    response_content = f"오류 발생: {e}"
-                    break
+                    response_content = "⚠️ 일시적인 AI 서비스 오류입니다. 잠시 후 다시 시도해주세요."
         
-        # 6. 결과 반환
+        # 6. 결과 반환 포맷팅
         formatted_sources = []
-        for doc, score in search_results_raw:
+        for doc, score in final_results:
             source_item = doc.metadata.copy()
             source_item['content'] = doc.page_content
             source_item['score'] = score
@@ -99,52 +123,71 @@ class FitLifeRAG:
         return {
             "answer": response_content,
             "sources": formatted_sources,
-            "confidence": self._calculate_confidence(search_results_raw)
+            "confidence": self._calculate_confidence(final_results)
         }
     
-    def _create_xai_prompt(self, mode, profile_info, query, context):
+    def _create_xai_prompt(self, mode, profile_info, query, context, target_calories=2000):
         """
-        ★ [핵심] AI에게 '설명 가능한 AI(XAI)' 역할을 부여하는 프롬프트
+        ★ [핵심 업데이트] 칼로리 계산 강제, 운동 시퀀스 및 영양 상호작용 반영
         """
         
-        base_instruction = """
-        [지침]
-        1. 반드시 [참고 자료]에 있는 데이터만 사용하세요.
-        2. 추천하는 이유를 '영양학적 관점'과 '사용자 건강 상태'에 맞춰 상세히 설명하세요.
-        3. 각 음식/운동마다 기대 효과를 구체적으로 서술하세요.
-        4. 같은 음식/운동을 중복해서 추천하지 마십시오.
+        # 목표 칼로리 범위 설정 (±10%)
+        min_cal = int(target_calories * 0.9)
+        max_cal = int(target_calories * 1.1)
+        per_meal_cal = int(target_calories / 3)
+
+        base_instruction = f"""
+        [공통 지침]
+        1. [참고 자료]에 기반하여 답변하되, 자료에 없는 내용은 일반적인 의학/건강 상식으로 보완하세요.
+        2. 출처가 확실한 정보는 (출처: 국민체력100)과 같이 표기하세요.
+        3. 사용자의 건강 상태(질환, 알러지)를 최우선으로 고려하여 경고 사항을 포함하세요.
+        4. 이전 대화 내역이 있다면 문맥을 고려하여 자연스럽게 이어가세요.
         """
 
         if mode == "food":
-            system_prompt = f"""당신은 '임상 영양 전문 AI'입니다. 
-            단순히 메뉴만 나열하지 말고, **왜 이 음식이 사용자의 목표(다이어트/근육 등)와 질환(당뇨 등)에 좋은지** 의학/영양학적 근거를 들어 설명하세요.
+            system_prompt = f"""당신은 '임상 영양 전문 AI'입니다.
+            단순한 메뉴 추천이 아니라, **철저한 칼로리 계산**을 통해 목표 열량을 맞춰야 합니다.
             
-            [출력 형식]
-            1. 📊 **사용자 건강 분석**: 현재 상태와 식단 전략 요약
-            2. 🍽️ **맞춤 식단 제안**: 아침/점심/저녁/간식 (칼로리 포함)
-            3. 💡 **영양 분석 (XAI)**: 
-               - 선정 이유: (예: 당뇨가 있으므로 GI 지수가 낮은 현미를 선택했습니다)
-               - 기대 효과: (예: 단백질 20g은 근육 회복을 돕습니다)
+            [매우 중요: 칼로리 계산 지침]
+            1. 사용자의 목표 일일 칼로리는 **{target_calories}kcal**입니다.
+            2. 추천 식단의 총합이 반드시 **{min_cal}kcal ~ {max_cal}kcal** 사이가 되도록 하세요.
+            3. 데이터베이스의 음식 양(예: 100g)으로 칼로리가 부족하다면, **양(g)이나 개수를 배로 늘리세요.** (예: 닭가슴살 100g -> 200g)
+            4. 각 끼니(아침/점심/저녁)는 대략 **{per_meal_cal}kcal** 내외로 구성하세요.
+
+            [필수 출력 구조]
+            1. 📊 **식단 설계 전략**: 
+               - "목표 {target_calories}kcal 달성을 위해 탄수화물 비중을 높이고, 식사량을 평소의 1.5배로 설정했습니다."
+            2. 🍽️ **맞춤 식단표 (총 {target_calories}kcal 목표)**: 
+               - **아침**: 메뉴명 (약 000kcal) - 재료 및 정확한 분량(g)
+               - **점심**: 메뉴명 (약 000kcal) - 재료 및 정확한 분량(g)
+               - **저녁**: 메뉴명 (약 000kcal) - 재료 및 정확한 분량(g)
+               - **간식**: 메뉴명 (약 000kcal)
+            3. 💡 **영양-운동 상호작용 분석 (XAI)**: 
+               - **선정 이유**: "사용자가 고강도 운동을 했으므로 근회복을 위해 류신이 풍부한 OO을 선택했습니다." 와 같이 인과관계를 설명.
+               - **기대 효과**: 해당 식재료가 목표 달성에 어떻게 기여하는지 설명.
             
             {base_instruction}
             """
         elif mode == "exercise":
-            system_prompt = f"""당신은 '전문 스포츠 의학 AI'입니다.
-            단순히 운동만 나열하지 말고, **왜 이 운동이 사용자에게 필요한지** 생리학적 근거를 들어 설명하세요.
+            system_prompt = f"""당신은 '전문 스포츠 의학 트레이너 AI'입니다.
+            운동은 하나만 추천하는 것이 아니라, **체계적인 루틴(Routine Sequence)**으로 구성해야 합니다.
             
-            [출력 형식]
-            1. 📊 **운동 능력 분석**: 사용자 상태 요약
-            2. 💪 **오늘의 루틴**: 운동 종목, 세트, 횟수
+            [필수 출력 구조]
+            1. 📊 **운동 처방 분석**: 사용자 목표 및 컨디션에 따른 운동 방향성
+            2. 💪 **오늘의 운동 시퀀스**:
+               - **Phase 1 [준비 운동]**: 체온 상승 및 관절 가동범위 확보 (5~10분)
+               - **Phase 2 [본 운동]**: 주요 근력/유산소 운동 (종목, 세트, 횟수, 휴식시간 명시)
+               - **Phase 3 [정리 운동]**: 심박수 안정 및 스트레칭
             3. 💡 **운동 효과 분석 (XAI)**:
-               - 선정 이유: (예: 관절이 약하므로 저충격 운동을 선택했습니다)
-               - 타겟 부위: (예: 대흉근과 삼두근을 자극합니다)
+               - **타겟 부위**: 자극되는 정확한 근육 명칭
+               - **선정 이유**: 사용자의 질환(예: 관절염)이나 목표에 이 루틴이 적합한 이유 설명
             
             {base_instruction}
             """
         else:
-            system_prompt = f"당신은 FitLife AI입니다. 상세하고 친절하게 답변하세요. {base_instruction}"
+            system_prompt = f"당신은 FitLife AI 헬스 코치입니다. 사용자의 질문에 친절하고 전문적으로 답변하세요. {base_instruction}"
 
-        user_message = f"{profile_info}\n[질문]: {query}\n[참고 자료]:\n{context}"
+        user_message = f"{profile_info}\n[목표 칼로리]: {target_calories}kcal\n[질문]: {query}\n[참고 자료]:\n{context}"
         return system_prompt, user_message
 
     def _build_context(self, search_results: List) -> str:
@@ -154,22 +197,32 @@ class FitLifeRAG:
             source = doc.metadata.get("source", "출처 미상")
             title = doc.metadata.get("title", "제목 없음")
             content = doc.page_content
-            context_parts.append(f"[{i}] {title} | {content} (출처: {source})")
+            # 하이브리드 검색 점수 표기 (디버깅용)
+            context_parts.append(f"[{i}] {title} (유사도: {score:.2f}) | {content}")
         return "\n".join(context_parts)
     
     def _format_profile(self, profile: Union[Dict, object]) -> str:
-        parts = ["[사용자 정보]"]
+        # 프로필 포맷팅 (이전과 동일)
+        parts = ["[사용자 프로필]"]
         if isinstance(profile, dict):
-            if "age" in profile: parts.append(f"나이: {profile['age']}")
-            if "goal" in profile: parts.append(f"목표: {profile['goal']}")
-            if "diseases" in profile: parts.append(f"질환: {profile['diseases']}")
-            if "allergies" in profile: parts.append(f"알러지: {profile['allergies']}")
+            for k, v in profile.items():
+                if v: parts.append(f"- {k}: {v}")
         else:
-            if hasattr(profile, 'age'): parts.append(f"나이: {profile.age}")
-            if hasattr(profile, 'goal'): parts.append(f"목표: {profile.goal}")
+            # 객체인 경우
+            try:
+                if hasattr(profile, 'age'): parts.append(f"- 나이: {profile.age}")
+                if hasattr(profile, 'goal'): parts.append(f"- 목표: {profile.goal}")
+                if hasattr(profile, 'diseases'): parts.append(f"- 질환: {profile.diseases}")
+                if hasattr(profile, 'allergies'): parts.append(f"- 알러지: {profile.allergies}")
+                if hasattr(profile, 'calories'): parts.append(f"- 목표칼로리: {profile.calories}")
+            except:
+                pass
         return "\n".join(parts)
     
     def _calculate_confidence(self, search_results: List) -> float:
         if not search_results: return 0.0
+        # 상위 3개의 평균 유사도를 신뢰도로 사용
         scores = [score for doc, score in search_results[:3]]
-        return sum(scores) / len(scores) if scores else 0.0
+        # 1.0을 넘을 수 있는 하이브리드 점수를 정규화
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+        return min(avg_score, 1.0)

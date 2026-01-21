@@ -1,12 +1,11 @@
 """
-FitLife AI - KnowledgeBase (최신 라이브러리 호환 버전)
+FitLife AI - KnowledgeBase (하이브리드 검색 엔진 탑재)
 """
 import os
 from typing import List, Tuple
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from langchain_community.embeddings import HuggingFaceEmbeddings
-# ★ [수정] 최신 LangChain 경로는 여기입니다!
 from langchain_core.documents import Document
 
 # 설정 파일 로드
@@ -51,7 +50,8 @@ class KnowledgeBase:
                     "title": doc['title'],
                     "source": doc.get("source", "unknown"),
                     "category": category,
-                    "video_url": doc.get("video_url", "")
+                    "video_url": doc.get("video_url", ""),
+                    "tags": doc.get("tags", [])  # [Update] 태그 필드 추가
                 },
                 "embedding": embeddings[i]
             })
@@ -64,36 +64,58 @@ class KnowledgeBase:
 
     def search(self, query: str, top_k: int = 5, category: str = None) -> List[Tuple[Document, float]]:
         """
-        [검색용] Supabase RPC 직접 호출 (버전 충돌 방지)
+        [하이브리드 검색 구현]
+        벡터 유사도(Semantic) + 키워드 매칭(Lexical) 점수를 합산하여 재정렬합니다.
         """
         try:
-            # 1. 질문을 벡터로 변환
+            # 1. 벡터 검색 (의미 기반) - 넉넉하게 2배수(top_k * 2)를 가져옵니다.
             query_vector = self.embedding_model.embed_query(query)
             
-            # 2. Supabase RPC 함수 호출
             params = {
                 "query_embedding": query_vector,
                 "match_threshold": 0.1, 
-                "match_count": top_k
+                "match_count": top_k * 2 
             }
             
             response = self.supabase_client.rpc("match_documents", params).execute()
             
-            results = []
+            # 2. 파이썬 레벨에서 하이브리드 리랭킹 (Reranking)
+            raw_results = []
+            query_tokens = set(query.split()) # 검색어 토큰화
+            
             for item in response.data:
                 # 카테고리 필터링
-                if category:
-                    item_category = item.get("metadata", {}).get("category", "")
-                    if item_category != category:
-                        continue
+                meta = item.get("metadata", {})
+                if category and meta.get("category") != category:
+                    continue
                 
-                doc = Document(
-                    page_content=item['content'],
-                    metadata=item['metadata']
-                )
-                results.append((doc, item['similarity']))
+                content = item.get("content", "")
+                title = meta.get("title", "")
+                vector_score = item['similarity']
                 
-            return results[:top_k]
+                # [Hybrid Logic] 키워드 가산점 로직
+                keyword_bonus = 0.0
+                matched_count = 0
+                
+                for token in query_tokens:
+                    if len(token) < 2: continue # 1글자는 무시
+                    if token in title:
+                        keyword_bonus += 0.05 # 제목에 있으면 큰 가산점
+                        matched_count += 1
+                    elif token in content:
+                        keyword_bonus += 0.02 # 본문에 있으면 작은 가산점
+                        matched_count += 1
+                
+                # 너무 과한 가산점 방지 (최대 0.15점 제한)
+                final_score = vector_score + min(keyword_bonus, 0.15)
+                
+                doc = Document(page_content=content, metadata=meta)
+                raw_results.append((doc, final_score))
+            
+            # 3. 최종 점수 기준 내림차순 정렬
+            raw_results.sort(key=lambda x: x[1], reverse=True)
+            
+            return raw_results[:top_k]
 
         except Exception as e:
             print(f"⚠️ 검색 중 오류 발생: {e}")
