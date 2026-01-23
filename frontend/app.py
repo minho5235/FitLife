@@ -52,19 +52,29 @@ def init_analyzer():
 
 def create_profile() -> UserProfile:
     # 사이드바 입력값(session_state)을 기반으로 프로필 객체 생성
+    selected_diseases = st.session_state.get("diseases", [])
+    custom_disease = st.session_state.get("custom_disease", "")
+    if custom_disease:
+        selected_diseases = selected_diseases + [d.strip() for d in custom_disease.split(",")]
+
+    selected_allergies = st.session_state.get("allergies", [])
+    custom_allergy = st.session_state.get("custom_allergy", "")
+    if custom_allergy:
+        selected_allergies = selected_allergies + [a.strip() for a in custom_allergy.split(",")]
     return UserProfile(
         age=st.session_state.get("age", 30),
         gender=st.session_state.get("gender", "남성"),
         height=st.session_state.get("height", 170.0),
         weight=st.session_state.get("weight", 70.0),
-        diseases=st.session_state.get("diseases", []),
-        allergies=st.session_state.get("allergies", []),
+        diseases=selected_diseases, # 병합된 리스트 전달
+        allergies=selected_allergies, # 병합된 리스트 전달
         goal=st.session_state.get("goal", "건강유지"),
         activity_level=st.session_state.get("activity_level", "보통"),
         sleep_hours=st.session_state.get("sleep_hours", 7.0),
         stress_level=st.session_state.get("stress_level", 5),
         calories=st.session_state.get("calories", 2000),
-        protein=st.session_state.get("protein", 60.0)
+        protein=st.session_state.get("protein", 60.0),
+        notes=st.session_state.get("notes", "")
     )
 
 # ===== 메인 함수 =====
@@ -160,10 +170,29 @@ def main():
             
             user_allergies = user.get('allergies', [])
             if isinstance(user_allergies, str): user_allergies = user_allergies.split(',')
+            
+            # DB에 저장된 특이사항 가져오기
+            user_notes = user.get('notes', "")
 
-            st.multiselect("질환", all_diseases, default=[d for d in user_diseases if d in all_diseases], key="diseases")
-            st.multiselect("알러지", all_allergies, default=[a for a in user_allergies if a in all_allergies], key="allergies")
-        
+            # 1. 기본 선택지 (Multiselect)
+            # DB에 있는 값 중 '기본 목록'에 있는 것만 default로 설정
+            default_diseases = [d for d in user_diseases if d in all_diseases]
+            default_allergies = [a for a in user_allergies if a in all_allergies]
+            
+            # 2. 직접 입력된 값 (DB에는 있지만 기본 목록에 없는 것들) 추출
+            custom_diseases_init = ",".join([d for d in user_diseases if d not in all_diseases])
+            custom_allergies_init = ",".join([a for a in user_allergies if a not in all_allergies])
+
+            st.multiselect("질환 (선택)", all_diseases, default=default_diseases, key="diseases")
+            st.text_input("기타 질환 (직접 입력, 쉼표 구분)", value=custom_diseases_init, key="custom_disease")
+            
+            st.multiselect("알러지 (선택)", all_allergies, default=default_allergies, key="allergies")
+            st.text_input("기타 알러지 (직접 입력, 쉼표 구분)", value=custom_allergies_init, key="custom_allergy")
+            
+            st.markdown("---")
+            st.text_area("📝 특이사항 / 요청사항", value=user_notes, height=100, placeholder="예: 무릎 수술 이력 있음, 매운 음식 못 먹음", key="notes")
+
+        # ... (목표 설정 등 중간 코드 생략) ...
         with st.expander("🎯 목표 & 활동"):
             st.selectbox("건강 목표", ["건강유지", "체중감량", "근육증가", "체력향상", "스트레스해소"], key="goal")
             activity_val = st.slider("활동량 레벨", 1, 5, 3)
@@ -185,31 +214,41 @@ def main():
                 conn.autocommit = True
                 cur = conn.cursor()
 
-                diseases_str = ",".join(st.session_state.diseases)
-                allergies_str = ",".join(st.session_state.allergies)
+                # 리스트(multiselect) + 문자열(text_input) 합치기
+                final_diseases = st.session_state.diseases + [x.strip() for x in st.session_state.custom_disease.split(",") if x.strip()]
+                final_allergies = st.session_state.allergies + [x.strip() for x in st.session_state.custom_allergy.split(",") if x.strip()]
 
+                diseases_str = ",".join(final_diseases)
+                allergies_str = ",".join(final_allergies)
+                notes_str = st.session_state.notes
+
+                # notes 컬럼 업데이트 추가
                 update_query = """
                 UPDATE users 
-                SET age = %s, gender = %s, height = %s, weight = %s, diseases = %s, allergies = %s
+                SET age = %s, gender = %s, height = %s, weight = %s, 
+                    diseases = %s, allergies = %s, notes = %s
                 WHERE username = %s;
                 """
                 cur.execute(update_query, (
                     st.session_state.age, st.session_state.gender, st.session_state.height,
-                    st.session_state.weight, diseases_str, allergies_str, user['username']
+                    st.session_state.weight, diseases_str, allergies_str, notes_str, user['username']
                 ))
 
                 st.success("✅ 저장 완료!")
+                # 세션 정보 즉시 업데이트
                 user['age'] = st.session_state.age
                 user['gender'] = st.session_state.gender
                 user['height'] = st.session_state.height
                 user['weight'] = st.session_state.weight
-                user['diseases'] = st.session_state.diseases
-                user['allergies'] = st.session_state.allergies
+                user['diseases'] = final_diseases # 리스트 형태로 저장
+                user['allergies'] = final_allergies
+                user['notes'] = notes_str
                 
                 cur.close()
                 conn.close()
             except Exception as e:
                 st.error(f"저장 실패: {e}")
+                st.info("💡 팁: DB에 'notes' 컬럼이 없다면 추가해야 합니다.")
 
     # ===== 메인 컨텐츠 =====
     st.title("🏃 FitLife AI 2.0")

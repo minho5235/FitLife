@@ -48,6 +48,7 @@ class UserProfile:
     fat: float = 65.0
     goal: str = "건강유지"
     target_weight: Optional[float] = None
+    notes: str = ""
     
     @property
     def bmi(self) -> float:
