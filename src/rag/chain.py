@@ -44,11 +44,16 @@ class FitLifeRAG:
         # 프로필에서 목표 정보 및 칼로리 추출
         if isinstance(user_profile, dict): 
             target_goal = user_profile.get("goal", "")
-            target_calories = user_profile.get("calories", 2000)
+            if "recommended_calories" in user_profile:
+                target_calories = int(user_profile["recommended_calories"])
+            else:
+                target_calories = int(user_profile.get("calories", 2000))
         elif hasattr(user_profile, "goal"): 
             target_goal = user_profile.goal
-            if hasattr(user_profile, "calories"):
-                target_calories = user_profile.calories
+            if hasattr(user_profile, "recommended_calories") and user_profile.recommended_calories:
+                target_calories = int(user_profile.recommended_calories)
+            elif hasattr(user_profile, "calories"):
+                target_calories = int(user_profile.calories)
             
         if mode == "food":
             enhanced_query += f" {target_goal} 영양성분 효능 부작용 식단"
@@ -69,7 +74,7 @@ class FitLifeRAG:
         # 3. 컨텍스트 구성
         # 중복 제거 및 상위 랭킹 문서만 추림
         search_results_raw.sort(key=lambda x: x[1], reverse=True)
-        final_results = search_results_raw[:10] # 최종적으로 가장 관련성 높은 10개만 LLM에게 전달
+        final_results = search_results_raw[:20] # 최종적으로 가장 관련성 높은 10개만 LLM에게 전달
         
         context = self._build_context(final_results)
         profile_info = self._format_profile(user_profile) if user_profile else ""
@@ -202,21 +207,46 @@ class FitLifeRAG:
         return "\n".join(context_parts)
     
     def _format_profile(self, profile: Union[Dict, object]) -> str:
-        # 프로필 포맷팅 (이전과 동일)
+        # 프로필 포맷팅
         parts = ["[사용자 프로필]"]
+        
         if isinstance(profile, dict):
             for k, v in profile.items():
                 if v: parts.append(f"- {k}: {v}")
         else:
-            # 객체인 경우
+            # 객체(UserProfile)인 경우
             try:
+                # 1. 기본 신체 정보
                 if hasattr(profile, 'age'): parts.append(f"- 나이: {profile.age}")
+                if hasattr(profile, 'gender'): parts.append(f"- 성별: {profile.gender}")
                 if hasattr(profile, 'goal'): parts.append(f"- 목표: {profile.goal}")
-                if hasattr(profile, 'diseases'): parts.append(f"- 질환: {profile.diseases}")
-                if hasattr(profile, 'allergies'): parts.append(f"- 알러지: {profile.allergies}")
-                if hasattr(profile, 'calories'): parts.append(f"- 목표칼로리: {profile.calories}")
+                
+                # 2. 질환 및 알러지 (리스트라면 보기 좋게 쉼표로 연결)
+                if hasattr(profile, 'diseases') and profile.diseases:
+                    val = profile.diseases
+                    if isinstance(val, list): val = ", ".join(val)
+                    parts.append(f"- 질환: {val}")
+                
+                if hasattr(profile, 'allergies') and profile.allergies:
+                    val = profile.allergies
+                    if isinstance(val, list): val = ", ".join(val)
+                    parts.append(f"- 알러지: {val}")
+                
+                display_cal = 2000
+                if hasattr(profile, 'recommended_calories') and profile.recommended_calories:
+                    display_cal = int(profile.recommended_calories)
+                elif hasattr(profile, 'calories'):
+                    display_cal = int(profile.calories)
+                
+                parts.append(f"- 목표/권장 칼로리: {display_cal}kcal")
+
+                # ★ 3. [핵심 추가] 특이사항(notes) 반영
+                if hasattr(profile, 'notes') and profile.notes:
+                    parts.append(f"- ★ 특이사항(요청): {profile.notes}")
+
             except:
                 pass
+                
         return "\n".join(parts)
     
     def _calculate_confidence(self, search_results: List) -> float:
