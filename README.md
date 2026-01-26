@@ -1,9 +1,7 @@
-# FitLife
-
-=======
-<div align="center">
-=======
 # 🏃 FitLife AI 2.0
+
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://fitlife-w4ytitvd4ehymkqvf6xwp8.streamlit.app/)
+> **[👉 FitLife AI 웹 데모 실행하기](https://fitlife-w4ytitvd4ehymkqvf6xwp8.streamlit.app/)**
 
 > **AI 기반 개인 맞춤형 건강 관리 시스템**
 > 
@@ -18,7 +16,7 @@
 | **📸 이미지 분석** | 식재료/운동기구 사진 → AI 인식 → 맞춤 추천 |
 | **🏥 건강 필터링** | 질환(당뇨, 고혈압 등) 고려한 자동 제외 |
 | **🚫 알러지 관리** | 7가지 알러지 식품 자동 제외 |
-| **📊 공공데이터** | 국민체력100 운동 500개+ |
+| **📊 공공데이터** | 국민체력100 운동 500개+, 식품안전나라API |
 | **🔍 XAI 분석** | 건강 점수 및 개선사항 시각화 |
 
 ---
