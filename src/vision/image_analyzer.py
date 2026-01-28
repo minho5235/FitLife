@@ -136,6 +136,24 @@ class ImageAnalyzer:
             return {"success": False}
         except Exception as e:
             return {"success": False, "error": str(e)}
+        
+# [추가] 프론트엔드 호환용 비동기 래퍼 메서드
+    async def analyze_image(self, image_bytes: bytes, mode: str = "general") -> Dict:
+        """
+        app.py의 요청(analyze_image)을 받아서
+        적절한 분석 메서드(analyze_ingredients 등)로 연결해주는 다리 역할
+        """
+        if mode == "equipment":
+            # 운동기구 분석 메서드 호출
+            return self.analyze_equipment(image_bytes)
+        
+        elif mode == "food" or mode == "ingredients":
+            # 식재료 분석 메서드 호출
+            return self.analyze_ingredients(image_bytes)
+            
+        else:
+            # 기본 분석 (인바디 등) - 필요시 구현
+            return {"success": False, "error": "지원하지 않는 분석 모드입니다."}
 
 
 # 하위 호환성
@@ -161,3 +179,4 @@ class FridgeAnalyzer(ImageAnalyzer):
             "recipes": recipes.get("recipes", []),
             "excluded_ingredients": [r for r in restrictions if r in str(ingredients)]
         }
+
