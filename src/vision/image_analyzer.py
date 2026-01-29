@@ -1,24 +1,22 @@
 """
-이미지 분석 모듈 v2.0
-- 냉장고/식재료 사진 → 재료 인식 → 요리 추천
-- 운동기구 사진 → 기구 인식 → 운동 추천
+이미지 분석 모듈 v2.4 (완성된 음식 분석 + 하위 호환성 FridgeAnalyzer 포함)
 """
 import base64
 import json
+import re
 from typing import List, Dict, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 from src.config import GOOGLE_API_KEY
 
-
 class ImageAnalyzer:
-    """통합 이미지 분석기 - 식재료 & 운동기구"""
+    """통합 이미지 분석기 - 식재료 & 운동기구 & 완성된 음식"""
     
     def __init__(self):
         self.vision_model = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=GOOGLE_API_KEY,
-            temperature=0.3
+            temperature=0.1
         )
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
@@ -29,134 +27,124 @@ class ImageAnalyzer:
     def _encode_image(self, image_bytes: bytes) -> str:
         return base64.b64encode(image_bytes).decode("utf-8")
     
+    def _clean_json_text(self, text: str) -> str:
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        return text.replace("\xa0", " ").strip()
+
     def _parse_json_response(self, text: str) -> Dict:
+        cleaned_text = self._clean_json_text(text)
         try:
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
-            return json.loads(text.strip())
+            return json.loads(cleaned_text)
         except:
-            return {}
-    
+            try:
+                match = re.search(r'\{.*\}', text, re.DOTALL)
+                if match:
+                    return json.loads(self._clean_json_text(match.group()))
+            except:
+                pass
+        return {}
+
+    # 1. 식재료 분석 (요리 재료용)
     def analyze_ingredients(self, image_bytes: bytes) -> Dict:
-        """냉장고/식재료 사진 분석"""
         image_data = self._encode_image(image_bytes)
-        
-        prompt = """이 사진에서 식별 가능한 모든 식재료를 분석해주세요.
-
-반드시 아래 JSON 형식으로만 응답:
-{
-    "ingredients": [
-        {"name": "재료명", "quantity": "양", "category": "채소/과일/육류/해산물/유제품/곡물/조미료/음료/기타", "freshness": "신선/보통/주의"}
-    ],
-    "total_confidence": 0.0~1.0
-}"""
-        
-        message = HumanMessage(content=[
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-        ])
-        
+        prompt = """
+        Identify raw ingredients in this image. Output JSON in KOREAN.
+        Format: {"ingredients": [{"name": "재료명(한글)", "quantity": "수량", "freshness": "신선/보통"}], "total_confidence": 0.9}
+        """
+        message = HumanMessage(content=[{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}])
         try:
             response = self.vision_model.invoke([message])
             result = self._parse_json_response(response.content)
-            if result:
-                result["success"] = True
-                return result
-            return {"success": False, "error": "파싱 실패", "ingredients": []}
-        except Exception as e:
-            return {"success": False, "error": str(e), "ingredients": []}
-    
-    def suggest_recipes(self, ingredients: List[str], dietary_restrictions: List[str] = None, meal_type: str = "any") -> Dict:
-        """재료 기반 요리 추천"""
-        restrictions_text = f"\n제한사항: {', '.join(dietary_restrictions)} 제외" if dietary_restrictions else ""
-        
-        prompt = f"""사용 가능한 재료: {', '.join(ingredients)}{restrictions_text}
-
-이 재료로 만들 수 있는 요리 3가지를 추천해주세요.
-반드시 아래 JSON 형식으로만 응답:
-{{"recipes": [{{"name": "요리명", "description": "설명", "cooking_time": "시간", "difficulty": "쉬움/보통/어려움", "nutrition": {{"calories": 숫자, "protein": 숫자}}, "steps": ["단계1", "단계2"]}}]}}"""
-        
-        try:
-            response = self.llm.invoke(prompt)
-            result = self._parse_json_response(response.content)
-            if result:
-                result["success"] = True
-                return result
-            return {"success": False, "recipes": []}
-        except Exception as e:
-            return {"success": False, "error": str(e), "recipes": []}
-    
-    def analyze_equipment(self, image_bytes: bytes) -> Dict:
-        """운동기구/환경 사진 분석"""
-        image_data = self._encode_image(image_bytes)
-        
-        prompt = """이 사진에서 운동 관련 기구와 환경을 분석해주세요.
-
-반드시 아래 JSON 형식으로만 응답:
-{
-    "equipment": [{"name": "기구명", "category": "유산소기구/웨이트기구/소도구/맨몸운동/기타"}],
-    "environment": "홈트레이닝/헬스장/야외/기타",
-    "available_space": "넓음/보통/좁음"
-}"""
-        
-        message = HumanMessage(content=[
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-        ])
-        
-        try:
-            response = self.vision_model.invoke([message])
-            result = self._parse_json_response(response.content)
-            if result:
-                result["success"] = True
-                return result
-            return {"success": False, "equipment": []}
-        except Exception as e:
-            return {"success": False, "error": str(e), "equipment": []}
-    
-    def suggest_exercises(self, equipment: List[str], target_area: str = "전신", fitness_level: str = "중급", duration: int = 30, health_conditions: List[str] = None) -> Dict:
-        """기구 기반 운동 추천"""
-        conditions_text = f"\n건강 상태: {', '.join(health_conditions)}" if health_conditions else ""
-        
-        prompt = f"""사용 가능한 기구: {', '.join(equipment) if equipment else '맨몸'}
-목표 부위: {target_area}, 수준: {fitness_level}, 시간: {duration}분{conditions_text}
-
-운동 루틴을 추천해주세요.
-반드시 JSON 형식으로만 응답:
-{{"routine_name": "이름", "estimated_calories": 숫자, "warmup": [{{"name": "운동명", "duration": "시간"}}], "main_workout": [{{"name": "운동명", "sets": 숫자, "reps": "횟수", "rest": "휴식", "target_muscle": "부위"}}], "cooldown": [{{"name": "운동명", "duration": "시간"}}]}}"""
-        
-        try:
-            response = self.llm.invoke(prompt)
-            result = self._parse_json_response(response.content)
-            if result:
-                result["success"] = True
-                return result
-            return {"success": False}
+            if result: result["success"] = True
+            return result or {"success": False, "ingredients": []}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # 2. 완성된 음식 분석 (영양 분석용)
+    def analyze_cooked_food(self, image_bytes: bytes, user_profile: str = "") -> Dict:
+        image_data = self._encode_image(image_bytes)
         
-# [추가] 프론트엔드 호환용 비동기 래퍼 메서드
-    async def analyze_image(self, image_bytes: bytes, mode: str = "general") -> Dict:
-        """
-        app.py의 요청(analyze_image)을 받아서
-        적절한 분석 메서드(analyze_ingredients 등)로 연결해주는 다리 역할
-        """
-        if mode == "equipment":
-            # 운동기구 분석 메서드 호출
-            return self.analyze_equipment(image_bytes)
+        prompt = f"""
+        이 사진은 '완성된 음식(Meal)'입니다. 
+        사용자의 건강 정보: {user_profile}
+
+        이 음식을 분석하여 다음 정보를 **반드시 한글로** JSON 포맷에 맞춰 출력하세요.
         
-        elif mode == "food" or mode == "ingredients":
-            # 식재료 분석 메서드 호출
+        JSON Format:
+        {{
+            "food_name": "음식명",
+            "calories": 0,
+            "nutrients": {{
+                "carbs": "0g", "protein": "0g", "fat": "0g", "sodium": "0mg", "sugar": "0g"
+            }},
+            "health_analysis": "당뇨가 있으시므로...",
+            "eating_guide": "국물은 남기시고...",
+            "better_choice": "대안 메뉴"
+        }}
+        """
+        
+        message = HumanMessage(content=[{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}])
+        
+        try:
+            response = self.vision_model.invoke([message])
+            result = self._parse_json_response(response.content)
+            if result: 
+                result["success"] = True
+                return result
+            return {"success": False, "error": "분석 실패"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # 3. 레시피 추천
+    def suggest_recipes(self, ingredients: List[str], dietary_restrictions: List[str] = None) -> Dict:
+        restrictions_text = f"제외: {', '.join(dietary_restrictions)}" if dietary_restrictions else ""
+        prompt = f"""재료: {', '.join(ingredients)}. {restrictions_text}. 한국 요리 3개 추천. JSON 포맷 (한글).
+        Format: {{"recipes": [{{"name": "요리명", "description": "설명", "nutrition": {{"calories": 0, "protein": 0}}, "steps": ["1", "2"]}}]}}"""
+        try:
+            response = self.llm.invoke(prompt)
+            result = self._parse_json_response(response.content)
+            if result: result["success"] = True
+            return result or {"success": False}
+        except: return {"success": False}
+
+    # 4. 운동기구 분석
+    def analyze_equipment(self, image_bytes: bytes) -> Dict:
+        image_data = self._encode_image(image_bytes)
+        prompt = """Analyze gym equipment. Output JSON in KOREAN. 
+        Format: {"equipment": [{"name": "기구명", "category": "유산소/웨이트"}], "environment": "장소"}"""
+        message = HumanMessage(content=[{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}])
+        try:
+            response = self.vision_model.invoke([message])
+            result = self._parse_json_response(response.content)
+            if result: result["success"] = True
+            return result or {"success": False}
+        except: return {"success": False}
+
+    def suggest_exercises(self, equipment: List[str], target_area: str = "전신", duration: int = 30) -> Dict:
+        prompt = f"기구: {equipment}, 부위: {target_area}, 시간: {duration}분. 운동 루틴 추천. JSON (한글)."
+        try:
+            response = self.llm.invoke(prompt)
+            result = self._parse_json_response(response.content)
+            if result: result["success"] = True
+            return result or {"success": False}
+        except: return {"success": False}
+
+    # Wrapper (비동기 호환)
+    async def analyze_image(self, image_bytes: bytes, mode: str = "general", user_profile: str = "") -> Dict:
+        if mode == "meal":
+            return self.analyze_cooked_food(image_bytes, user_profile)
+        elif mode == "ingredients":
             return self.analyze_ingredients(image_bytes)
-            
-        else:
-            # 기본 분석 (인바디 등) - 필요시 구현
-            return {"success": False, "error": "지원하지 않는 분석 모드입니다."}
+        elif mode == "equipment":
+            return self.analyze_equipment(image_bytes)
+        return {"success": False}
 
 
-# 하위 호환성
+# ★ [핵심 수정] 이 클래스가 없어서 에러가 났던 것입니다.
+# 기존 코드와의 호환성을 위해 ImageAnalyzer를 상속받은 껍데기 클래스를 만들어줍니다.
 class FridgeAnalyzer(ImageAnalyzer):
     def analyze_image(self, image_bytes: bytes) -> Dict:
         return self.analyze_ingredients(image_bytes)
@@ -171,7 +159,7 @@ class FridgeAnalyzer(ImageAnalyzer):
         if user_profile:
             restrictions = getattr(user_profile, 'allergies', []) + getattr(user_profile, 'diseases', [])
         
-        recipes = self.suggest_recipes(ingredients, restrictions, meal_type)
+        recipes = self.suggest_recipes(ingredients, restrictions)
         
         return {
             "success": True,
@@ -179,4 +167,3 @@ class FridgeAnalyzer(ImageAnalyzer):
             "recipes": recipes.get("recipes", []),
             "excluded_ingredients": [r for r in restrictions if r in str(ingredients)]
         }
-
